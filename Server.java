@@ -8,13 +8,28 @@ import java.net.InetAddress;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Scanner;
 
-public class Server {
 
+// Specifies the commands the server will support.
+interface ICommandProcessor {
+  String purchase(String username, String productName, int quantity);
+  String cancel(int orderId);
+  String search(String username);
+  String list();
+}
+
+public class Server implements ICommandProcessor {
+
+
+  // Product data.
   class ProductData {
+    
     private Map<String, Integer> productMap = new TreeMap<>();
 
     public ProductData() {}
@@ -42,22 +57,108 @@ public class Server {
       }
       return sb.toString();
     }
+
   }
 
-  private int tcpPort;
-  private int udpPort;
-  private String fileName;
+  // Order data.
+  class OrderData {
+
+
+    class Order {
+
+      private int orderId;
+      private String productName;
+      private int productQuantity;
+
+      public Order(int orderId, String productName, int productQuantity) {
+        this.orderId = orderId;
+        this.productName = productName;
+        this.productQuantity = productQuantity;
+      }
+
+      public int getOrderId() {
+        return orderId;
+      }
+
+      public String getProductName() {
+        return productName;
+      }
+
+      public int getProductQuantity() {
+        return productQuantity;
+      }
+
+      @Override
+      public boolean equals(Object o) {
+        if (!(o instanceof Order)) return false;
+        Order rhsOrder = (Order)o;
+        if (orderId == rhsOrder.getOrderId() && 
+            productName.equals(rhsOrder.getProductName()) &&
+            productQuantity == rhsOrder.getProductQuantity()) {
+          return true;
+        }
+        return false;
+      }
+
+      @Override
+      public int hashCode() {
+        return Objects.hash(orderId, productName, productQuantity);
+      }
+
+
+    } 
+
+    private Map<String, Map<Integer, Order>> userNameToOrdersMap = new TreeMap<>();
+    private Map<Integer, String> orderIdToUserNameMap = new TreeMap<>();
+    private int orderIdCounter = 1;
+
+    // Get orders.
+    public synchronized List<Order> getOrders(String username) {
+      List<Order> orders = new ArrayList<>();
+      if (userNameToOrdersMap.containsKey(username)) {
+        Map<Integer, Order> orderIdToOrderMap = userNameToOrdersMap.get(username);
+        for (int orderId : orderIdToOrderMap.keySet()) {
+          orders.add(orderIdToOrderMap.get(orderId));
+        }
+      }
+      return orders;
+    }
+
+    // Add an order.
+    // Returns order id on success or -1 on failure.
+    public synchronized int addOrder(String username, String productName, int productQuantity) {
+      int orderId = orderIdCounter++;
+      Order order = new Order(orderId, productName, productQuantity);
+      if (!userNameToOrdersMap.containsKey(username)) {
+        userNameToOrdersMap.put(username, new TreeMap<>());
+      }
+      userNameToOrdersMap.get(username).put(orderId, order);
+      orderIdToUserNameMap.put(orderId, username);
+      return orderId;
+    }
+
+    // Cancel an order.
+    // Returns order id on success or -1 on failure.
+    public synchronized int cancelOrder(int orderId) {
+      return 0;
+      
+    }
+
+  }
 
   private ProductData productData = new ProductData();
+  private OrderData orderData = new OrderData();
 
   class UdpServerThread extends Thread {
+    private ICommandProcessor processor;
     private DatagramSocket socket;
     private byte[] buf = new byte[1024];
     private int port;
     private boolean running = true;
 
-    public UdpServerThread(int port) {
+    public UdpServerThread(int port, ICommandProcessor processor) {
       this.port = port;
+      this.processor = processor;
     }
 
     public void run() {
@@ -99,13 +200,28 @@ public class Server {
 
   public Server() { }
 
-  public Server(int tcpPort, int udpPort, String fileName) {
-    this.tcpPort = tcpPort;
-    this.udpPort = udpPort;
-    this.fileName = fileName;
+
+  // Handle purchase command.
+  public String purchase(String username, String productName, int quantity) {
+    return "";
+  }
+  
+  // Handle cancel command.
+  public String cancel(int orderId) {
+    return "";
+  }
+  
+  // Handle search command.
+  public String search(String username) {
+    return "";
   }
 
-  public void start() {
+  // Handle list command.
+  public String list() {
+    return productData.toString();
+  }
+
+  public void start(int tcpPort, int udpPort, String fileName) {
 
     try {
 
@@ -113,7 +229,7 @@ public class Server {
       productData.loadFromFile(fileName);
 
       // Start the UDP server.
-      UdpServerThread udpServerThread = new UdpServerThread(udpPort);
+      UdpServerThread udpServerThread = new UdpServerThread(udpPort, this);
       udpServerThread.start();
 
       // Wait for the threads to finish.
@@ -141,8 +257,8 @@ public class Server {
     udpPort = Integer.parseInt(args[1]);
     String fileName = args[2];
 
-    Server server = new Server(tcpPort, udpPort, fileName);
-    server.start();
+    Server server = new Server();
+    server.start(tcpPort, udpPort, fileName);
 
   }
 }
