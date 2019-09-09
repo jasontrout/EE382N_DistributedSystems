@@ -5,6 +5,7 @@ import java.io.FileNotFoundException;
 import java.io.InputStreamReader;
 import java.io.IOException;
 import java.lang.InterruptedException;
+import java.lang.NumberFormatException;
 import java.lang.StringBuilder;
 import java.lang.Thread;
 import java.net.InetAddress;
@@ -23,51 +24,14 @@ import java.util.Scanner;
 
 
 // Specifies the commands the server will support.
-interface ICommandProcessor {
-  String purchase(String username, String productName, int quantity);
-  String cancel(int orderId);
-  String search(String username);
-  String list();
+interface IServer {
+  String executeCommand(String command);
 }
 
-public class Server implements ICommandProcessor {
+public class Server implements IServer {
 
-
-  // Product data.
-  class ProductData {
-    
-    private Map<String, Integer> productMap = new TreeMap<>();
-
-    public ProductData() {}
-
-    public synchronized void loadFromFile(String fileName) throws FileNotFoundException {
-      File file = new File(fileName);
-      Scanner sc = new Scanner(file);
-      while (sc.hasNextLine()) { 
-        String name = sc.next(); 
-    	  int quantity = sc.nextInt();
-	      productMap.put(name, quantity);
-      }
-      sc.close();
-    }
-
-    public synchronized void addProduct(String name, int quantity) {
-      productMap.put(name, quantity);
-    }
-
-    public synchronized String toString() { 
-      StringBuilder sb = new StringBuilder();
-      for (String name : productMap.keySet()) {
-	      int quantity = productMap.get(name);
-        sb.append(name).append(" ").append(quantity).append("\n");
-      }
-      return sb.toString();
-    }
-
-  }
-
-  // Order data.
-  class OrderData {
+  // Data interface
+  class DataInterface {
 
 
     class Order {
@@ -114,59 +78,113 @@ public class Server implements ICommandProcessor {
 
     } 
 
+    private Map<String, Integer> productMap = new TreeMap<>();
     private Map<String, Map<Integer, Order>> userNameToOrdersMap = new TreeMap<>();
-    private Map<Integer, String> orderIdToUserNameMap = new TreeMap<>();
+    private Map<Integer, String> orderIdToUsernameMap = new TreeMap<>();
     private int orderIdCounter = 1;
 
-    // Get orders.
-    public synchronized List<Order> getOrders(String username) {
-      List<Order> orders = new ArrayList<>();
+    public DataInterface() { }
+
+    // Load inventory from a file.
+    public synchronized void loadInventoryFromFile(String fileName) throws FileNotFoundException {
+      File file = new File(fileName);
+      Scanner sc = new Scanner(file);
+      while (sc.hasNextLine()) { 
+        String name = sc.next(); 
+    	  int quantity = sc.nextInt();
+	      productMap.put(name, quantity);
+      }
+      sc.close();
+    }
+
+    // Purchase.
+    public synchronized String purchase(String username, String productName, int productQuantity) {
+      StringBuilder sb = new StringBuilder();
+      if (productQuantity < 1) {
+        sb.append("At least one of the product must be purchased for an order");
+      } else if (!productMap.containsKey(productName)) {
+        sb.append("Not Available - We do not set this product");
+      } else {
+        int productQuantityRemaining = productMap.get(productName);
+        if (productQuantity > productQuantityRemaining) {
+          sb.append("Not Available - Not enough items");
+        } else {
+          int orderId = orderIdCounter++;
+          Order order = new Order(orderId, productName, productQuantity);
+          if (!userNameToOrdersMap.containsKey(username)) {
+            userNameToOrdersMap.put(username, new TreeMap<>());
+          }
+          userNameToOrdersMap.get(username).put(orderId, order);
+          orderIdToUsernameMap.put(orderId, username);
+          productMap.put(productName, productQuantityRemaining - productQuantity);
+          sb.append("Your order has been placed, ").append(orderId).append(" ").append(username).append(" ").append(productName).append(" ").append(productQuantity);
+        }
+      }
+      return sb.append("\n").toString();
+    }
+
+    // Cancel.
+    public synchronized String cancel(int orderId) {
+      StringBuilder sb = new StringBuilder();
+      if (!orderIdToUsernameMap.containsKey(orderId)) {
+        sb.append(orderId).append(" not found, no such order");
+      } else {
+        String username = orderIdToUsernameMap.get(orderId);
+        Order order = userNameToOrdersMap.get(username).get(orderId);
+        String productName = order.getProductName();
+        int productQuantity = order.getProductQuantity();
+        int productQuantityRemaining = productMap.get(productName);
+        productMap.put(productName, productQuantityRemaining + productQuantity);
+        orderIdToUsernameMap.remove(orderId);
+        userNameToOrdersMap.get(username).remove(orderId);
+        sb.append("Order ").append(orderId).append(" is canceled");
+      }
+      return sb.append("\n").toString();
+    }
+
+    // Search.
+    public synchronized String search(String username) {
+      StringBuilder sb = new StringBuilder();
       if (userNameToOrdersMap.containsKey(username)) {
         Map<Integer, Order> orderIdToOrderMap = userNameToOrdersMap.get(username);
         for (int orderId : orderIdToOrderMap.keySet()) {
-          orders.add(orderIdToOrderMap.get(orderId));
+          Order order = orderIdToOrderMap.get(orderId);
+          String productName = order.getProductName();
+          int productQuantity = order.getProductQuantity();
+          sb.append(orderId).append(", ").append(productName).append(", ").append(productQuantity).append("\n");
         }
+      } else {
+        sb.append("No order found for ").append(username).append("\n");
       }
-      return orders;
+      return sb.toString();
     }
 
-    // Add an order.
-    // Returns order id on success or -1 on failure.
-    public synchronized int addOrder(String username, String productName, int productQuantity) {
-      int orderId = orderIdCounter++;
-      Order order = new Order(orderId, productName, productQuantity);
-      if (!userNameToOrdersMap.containsKey(username)) {
-        userNameToOrdersMap.put(username, new TreeMap<>());
+    // List.
+    public synchronized String list() { 
+      StringBuilder sb = new StringBuilder();
+      for (String name : productMap.keySet()) {
+	      int quantity = productMap.get(name);
+        sb.append(name).append(" ").append(quantity).append("\n");
       }
-      userNameToOrdersMap.get(username).put(orderId, order);
-      orderIdToUserNameMap.put(orderId, username);
-      return orderId;
-    }
-
-    // Cancel an order.
-    // Returns order id on success or -1 on failure.
-    public synchronized int cancelOrder(int orderId) {
-      return 0;
-      
+      return sb.toString();
     }
 
   }
 
-  private ProductData productData = new ProductData();
-  private OrderData orderData = new OrderData();
+  private DataInterface dataInterface = new DataInterface();
 
 
   // UDP Server Thread
   class UdpServerThread extends Thread {
-    private ICommandProcessor processor;
+    private IServer server;
     private DatagramSocket socket;
     private byte[] buf = new byte[1024];
     private int port;
     private boolean running ;
 
-    public UdpServerThread(int port, ICommandProcessor processor) {
+    public UdpServerThread(int port, IServer server) {
       this.port = port;
-      this.processor = processor;
+      this.server = server;
     }
 
     public void run() {
@@ -181,14 +199,16 @@ public class Server implements ICommandProcessor {
 
 	          InetAddress srcAddress = srcPacket.getAddress();
 	          int srcPort = srcPacket.getPort();
-            String cmd = new String(srcPacket.getData(), 0, srcPacket.getLength());
-	          String[] tokens = cmd.split(" ");
 
-	          if (tokens[0].equals("list")) {
-              byte[] dstBytes = processor.list().getBytes();
-	            DatagramPacket dstPacket = new DatagramPacket(dstBytes, dstBytes.length, srcAddress, srcPort);
-	            socket.send(dstPacket);
-	          }
+
+            String command = new String(srcPacket.getData(), 0, srcPacket.getLength());
+            String response = server.executeCommand(command);
+            
+            if (response != null) {
+              byte[] responseBytes = response.getBytes();
+              DatagramPacket responsePacket = new DatagramPacket(responseBytes, responseBytes.length, srcAddress, srcPort);
+              socket.send(responsePacket);
+            }
           } catch (Exception ex) {
 	          ex.printStackTrace();
           }
@@ -212,16 +232,16 @@ public class Server implements ICommandProcessor {
 
     private int clientId;
     private ITcpServerThread tcpServerThread;
-    private ICommandProcessor processor;
+    private IServer server;
     private Socket socket;
     private boolean running;
 
 
-    public TcpClientThread(int clientId, Socket socket, ITcpServerThread tcpServerThread, ICommandProcessor processor) {
+    public TcpClientThread(int clientId, Socket socket, ITcpServerThread tcpServerThread, IServer server) {
       this.clientId = clientId;
       this.socket = socket;
       this.tcpServerThread = tcpServerThread;
-      this.processor = processor;
+      this.server = server;
     }
 
     public void run() {
@@ -238,17 +258,15 @@ public class Server implements ICommandProcessor {
         while (running) {
 
           // Read command.
-          String cmd = br.readLine();
-          if (cmd == null) {
+          String command = br.readLine();
+          if (command == null) {
             running = false;
             break;
           }
-          System.out.println("Read line: " + cmd);
-          String[] tokens = cmd.split(" ");
 
-          // Respond to command.
-          if (tokens[0].equals("list")) {
-            dos.writeBytes(processor.list());
+          String response = server.executeCommand(command);
+          if (response != null) { 
+            dos.writeBytes(response);
             dos.flush();
           }
         }
@@ -282,16 +300,17 @@ public class Server implements ICommandProcessor {
   // TCP Server Thread
   class TcpServerThread extends Thread implements ITcpServerThread {
 
-    private ICommandProcessor processor;
     private ServerSocket socket;
+    private IServer server;
     private int port;
     private boolean running;
     private int clientIdCounter = 1;
     private Map<Integer, TcpClientThread> clientIdToClientThreadMap = new TreeMap<>();
+   
 
-    public TcpServerThread(int port, ICommandProcessor processor) {
+    public TcpServerThread(int port, IServer server) {
       this.port = port;
-      this.processor = processor;
+      this.server = server;
     }
 
     public void run() {
@@ -301,7 +320,7 @@ public class Server implements ICommandProcessor {
         socket = new ServerSocket(port);
         while (running) {
           Socket clientSocket = socket.accept();
-          TcpClientThread tcpClientThread = new TcpClientThread(clientIdCounter, clientSocket, this, processor);
+          TcpClientThread tcpClientThread = new TcpClientThread(clientIdCounter, clientSocket, this, server);
           clientIdToClientThreadMap.put(clientIdCounter, tcpClientThread);
           tcpClientThread.start();
           clientIdCounter++;
@@ -337,25 +356,36 @@ public class Server implements ICommandProcessor {
 
   public Server() { }
 
-
-  // Handle purchase command.
-  public String purchase(String username, String productName, int quantity) {
-    return "";
-  }
-  
-  // Handle cancel command.
-  public String cancel(int orderId) {
-    return "";
-  }
-  
-  // Handle search command.
-  public String search(String username) {
-    return "";
+  // Parses String to an int.
+  private int parseInt(String value) {
+    int retVal;
+    try {
+      retVal = Integer.parseInt(value);
+    } catch (NumberFormatException e) {
+      retVal = 0;
+    }
+    return retVal;
   }
 
-  // Handle list command.
-  public String list() {
-    return productData.toString();
+  // Executes command from client and returns a response. Returns null if an unknown command is provided.
+  public String executeCommand(String command) {
+    String[] tokens = command.split(" ");
+    if (tokens[0].equals("purchase") && tokens.length == 4) {
+      String username = tokens[1];
+      String productName = tokens[2];
+      int quantity = parseInt(tokens[3]);
+      return dataInterface.purchase(username, productName, quantity);
+    } else if (tokens[0].equals("cancel") && tokens.length == 2) {
+      int orderId = parseInt(tokens[1]);
+      return dataInterface.cancel(orderId);
+    } else if (tokens[0].equals("search") && tokens.length == 2) {
+      String username = tokens[1];
+      return dataInterface.search(username);
+    } else if (tokens[0].equals("list") && tokens.length == 1) {
+      return dataInterface.list();
+    } else {
+      return null;
+    }
   }
 
   public void start(int tcpPort, int udpPort, String fileName) {
@@ -363,7 +393,7 @@ public class Server implements ICommandProcessor {
     try {
 
       // Load inventory file.
-      productData.loadFromFile(fileName);
+      dataInterface.loadInventoryFromFile(fileName);
 
       // Start the TCP server.
       TcpServerThread tcpServerThread = new TcpServerThread(tcpPort, this);
