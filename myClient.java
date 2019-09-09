@@ -66,7 +66,7 @@ public class myClient {
     }
 
     public static void sendMsgTCP(String st, myClient client) throws IOException {
-        client.getTcpOutputStream().writeBytes(st);
+        client.getTcpOutputStream().writeBytes(st + "\n");
         //client.getTcpOutputStream().close();
     }
 
