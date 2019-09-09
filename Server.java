@@ -1,13 +1,19 @@
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.InputStreamReader;
 import java.io.IOException;
 import java.lang.InterruptedException;
 import java.lang.StringBuilder;
 import java.lang.Thread;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -149,12 +155,14 @@ public class Server implements ICommandProcessor {
   private ProductData productData = new ProductData();
   private OrderData orderData = new OrderData();
 
+
+  // UDP Server Thread
   class UdpServerThread extends Thread {
     private ICommandProcessor processor;
     private DatagramSocket socket;
     private byte[] buf = new byte[1024];
     private int port;
-    private boolean running = true;
+    private boolean running ;
 
     public UdpServerThread(int port, ICommandProcessor processor) {
       this.port = port;
@@ -164,6 +172,7 @@ public class Server implements ICommandProcessor {
     public void run() {
       try {
         System.out.println("UDP server started. Listening on port " + port);
+        running = true;
         socket = new DatagramSocket(port);
         while (running) {
           try { 
@@ -176,7 +185,7 @@ public class Server implements ICommandProcessor {
 	          String[] tokens = cmd.split(" ");
 
 	          if (tokens[0].equals("list")) {
-              byte[] dstBytes = productData.toString().getBytes();
+              byte[] dstBytes = processor.list().getBytes();
 	            DatagramPacket dstPacket = new DatagramPacket(dstBytes, dstBytes.length, srcAddress, srcPort);
 	            socket.send(dstPacket);
 	          }
@@ -196,6 +205,134 @@ public class Server implements ICommandProcessor {
       running = false;
       socket.close();
     }
+  }
+
+  // TCP Client Thread
+  class TcpClientThread extends Thread {
+
+    private int clientId;
+    private ITcpServerThread tcpServerThread;
+    private ICommandProcessor processor;
+    private Socket socket;
+    private boolean running;
+
+
+    public TcpClientThread(int clientId, Socket socket, ITcpServerThread tcpServerThread, ICommandProcessor processor) {
+      this.clientId = clientId;
+      this.socket = socket;
+      this.tcpServerThread = tcpServerThread;
+      this.processor = processor;
+    }
+
+    public void run() {
+      try {
+        InetAddress address = socket.getInetAddress();
+        int port = socket.getPort();
+        System.out.println("TCP client connected from " + address.toString() + ":" + port);
+        running = true;
+
+        BufferedReader br = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+
+        try {
+        while (running) {
+
+          // Read command.
+          String cmd = br.readLine();
+          if (cmd == null) {
+            running = false;
+            break;
+          }
+          System.out.println("Read line: " + cmd);
+          String[] tokens = cmd.split(" ");
+
+          // Respond to command.
+          if (tokens[0].equals("list")) {
+            dos.writeBytes(processor.list());
+            dos.flush();
+          }
+        }
+          tcpServerThread.notifyClientDisconnected(clientId, socket);
+        } catch (SocketException e) {
+          tcpServerThread.notifyClientDisconnected(clientId, socket);
+        }
+      } catch (Exception e) {
+        System.out.println("Error in TcpClientThread");
+        e.printStackTrace();
+      }
+    }
+
+    @Override
+    public void interrupt() {
+      super.interrupt();
+      running = false;
+      try {
+        socket.close();
+      } catch (IOException e) {
+        System.out.println("Unable to close TCP Client socket.");
+        e.printStackTrace();
+      }
+    }
+  }
+
+  interface ITcpServerThread {
+    void notifyClientDisconnected(int clientId, Socket socket);
+  }
+
+  // TCP Server Thread
+  class TcpServerThread extends Thread implements ITcpServerThread {
+
+    private ICommandProcessor processor;
+    private ServerSocket socket;
+    private int port;
+    private boolean running;
+    private int clientIdCounter = 1;
+    private Map<Integer, TcpClientThread> clientIdToClientThreadMap = new TreeMap<>();
+
+    public TcpServerThread(int port, ICommandProcessor processor) {
+      this.port = port;
+      this.processor = processor;
+    }
+
+    public void run() {
+      try {
+        System.out.println("TCP server started. Listening on port " + port);
+        running = true;
+        socket = new ServerSocket(port);
+        while (running) {
+          Socket clientSocket = socket.accept();
+          TcpClientThread tcpClientThread = new TcpClientThread(clientIdCounter, clientSocket, this, processor);
+          clientIdToClientThreadMap.put(clientIdCounter, tcpClientThread);
+          tcpClientThread.start();
+          clientIdCounter++;
+        }
+      } catch (Exception e) {
+        System.out.println("Error in TcpServerThread.");
+        e.printStackTrace();
+      }
+    }
+
+    @Override
+    public synchronized void notifyClientDisconnected(int clientId, Socket socket) {
+      InetAddress address = socket.getInetAddress();
+      int port = socket.getPort();
+      System.out.println("TCP client disconnected from " + address.toString() + ":" + port);
+      clientIdToClientThreadMap.remove(clientId);
+    }
+
+    @Override
+    public void interrupt() {
+      super.interrupt();
+      running = false;
+      try {
+        socket.close();
+      } catch (IOException e) {
+        System.out.println("Unable to close TCP Server socket.");
+        e.printStackTrace();
+      }
+    }
+
+
   }
 
   public Server() { }
@@ -228,12 +365,19 @@ public class Server implements ICommandProcessor {
       // Load inventory file.
       productData.loadFromFile(fileName);
 
+      // Start the TCP server.
+      TcpServerThread tcpServerThread = new TcpServerThread(tcpPort, this);
+      tcpServerThread.start();
+
       // Start the UDP server.
       UdpServerThread udpServerThread = new UdpServerThread(udpPort, this);
       udpServerThread.start();
 
       // Wait for the threads to finish.
+      tcpServerThread.join();
       udpServerThread.join();
+
+
     } catch (InterruptedException e) {
       System.out.println("Main thread interrupted.");
     } catch (Exception e) {
