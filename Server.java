@@ -145,8 +145,8 @@ public class Server implements IServer {
     // Search.
     public synchronized String search(String username) {
       StringBuilder sb = new StringBuilder();
-      if (userNameToOrdersMap.containsKey(username)) {
-        Map<Integer, Order> orderIdToOrderMap = userNameToOrdersMap.get(username);
+      Map<Integer, Order> orderIdToOrderMap = userNameToOrdersMap.get(username);
+      if (orderIdToOrderMap != null && orderIdToOrderMap.size() > 0) {
         for (int orderId : orderIdToOrderMap.keySet()) {
           Order order = orderIdToOrderMap.get(orderId);
           String productName = order.getProductName();
