@@ -265,8 +265,8 @@ public class Server implements IServer {
           }
 
           String response = server.executeCommand(command);
-          response += "<EOF>";
           if (response != null) { 
+            response += "<EOF>";
             dos.writeBytes(response);
             dos.flush();
           }
