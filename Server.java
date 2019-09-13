@@ -162,10 +162,10 @@ public class Server implements IServer {
     // List.
     public synchronized String list() { 
       StringBuilder sb = new StringBuilder();
-      for (String name : productMap.keySet()) {
-	      int quantity = productMap.get(name);
-        sb.append(name).append(" ").append(quantity).append("\n");
-      }
+      productMap.entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+        .forEach((e) -> {
+        sb.append(e.getKey()).append(" ").append(e.getValue()).append("\n");
+      });
       return sb.toString();
     }
 
