@@ -189,9 +189,9 @@ public class Server implements IServer {
 
     public void run() {
       try {
-        System.out.println("UDP server started. Listening on port " + port);
         running = true;
         socket = new DatagramSocket(port);
+        System.out.println("UDP server started. Listening on" + socket.getLocalAddress() + ":" + port);
         while (running) {
           try { 
             DatagramPacket srcPacket = new DatagramPacket(buf, buf.length);
@@ -266,7 +266,7 @@ public class Server implements IServer {
 
           String response = server.executeCommand(command);
           if (response != null) { 
-            response += "<EOF>";
+            response += "<EOM>";
             dos.writeBytes(response);
             dos.flush();
           }
@@ -316,9 +316,9 @@ public class Server implements IServer {
 
     public void run() {
       try {
-        System.out.println("TCP server started. Listening on port " + port);
         running = true;
         socket = new ServerSocket(port);
+        System.out.println("TCP server started. Listening on " + socket.getLocalSocketAddress());
         while (running) {
           Socket clientSocket = socket.accept();
           TcpClientThread tcpClientThread = new TcpClientThread(clientIdCounter, clientSocket, this, server);
