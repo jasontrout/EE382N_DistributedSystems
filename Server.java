@@ -191,7 +191,7 @@ public class Server implements IServer {
       try {
         running = true;
         socket = new DatagramSocket(port);
-        System.out.println("UDP server started. Listening on" + socket.getLocalAddress() + ":" + port);
+        System.out.println("UDP server started. Listening on " + socket.getLocalAddress() + ":" + port);
         while (running) {
           try { 
             DatagramPacket srcPacket = new DatagramPacket(buf, buf.length);
@@ -265,11 +265,10 @@ public class Server implements IServer {
           }
 
           String response = server.executeCommand(command);
-          if (response != null) { 
-            response += "<EOM>";
-            dos.writeBytes(response);
-            dos.flush();
-          }
+          if (response == null) { response = "Did not understand command " + command; }
+          response += "<EOM>";
+          dos.writeBytes(response);
+          dos.flush();
         }
           tcpServerThread.notifyClientDisconnected(clientId, socket);
         } catch (SocketException e) {
