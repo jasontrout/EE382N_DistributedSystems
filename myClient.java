@@ -56,12 +56,13 @@ public class myClient {
 
     public static String readMultipleMsgTCP(myClient client) throws IOException {
         String result = "";
-        while(!result.contains("\n")) {
+        while(!result.contains("<EOF>")) {
             byte[] receiveFromServerData = new byte[1024];
             client.getTcpInputStream().read(receiveFromServerData);
             String receiveFromServer = new String(receiveFromServerData).replaceAll("\\u0000", "");
             result = result + receiveFromServer;
         }
+        result = result.replace("<EOF>", "");
         return result;
     }
 
